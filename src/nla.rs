@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    emit_u16, parse_u16,
-    traits::{Emitable, Parseable},
-    DecodeError,
+    append_bytes, emit_u16, parse_u16,
+    traits::{Emitable, Parseable, TryEmit, TryNla},
+    DecodeError, EncodeError,
 };
 use core::ops::Range;
 
@@ -21,11 +21,30 @@ pub const NLA_TYPE_MASK: u16 = !(NLA_F_NET_BYTEORDER | NLA_F_NESTED);
 pub const NLA_ALIGNTO: usize = 4;
 /// NlA(RTA) header size. (unsigned short rta_len) + (unsigned short rta_type)
 pub const NLA_HEADER_SIZE: usize = 4;
+/// Maximum length of an attribute value.
+///
+/// The kernel stores the attribute length in a `u16` that includes the
+/// four-byte header, so the value itself can be at most 65531 bytes.
+pub const NLA_MAX_VALUE_LEN: usize = u16::MAX as usize - NLA_HEADER_SIZE;
 
 macro_rules! nla_align {
     ($len: expr) => {
         ($len + $crate::NLA_ALIGNTO - 1) & !($crate::NLA_ALIGNTO - 1)
     };
+}
+
+/// Return the total size of an attribute, including its header and padding.
+///
+/// Returns [`EncodeError`] when `value_len` cannot be represented in the
+/// 16-bit attribute length field.
+pub fn nla_total_size(value_len: usize) -> Result<usize, EncodeError> {
+    if value_len > NLA_MAX_VALUE_LEN {
+        return Err(EncodeError::too_large(format!(
+            "netlink attribute value is too long: {value_len} > \
+             {NLA_MAX_VALUE_LEN} bytes"
+        )));
+    }
+    Ok(nla_align!(value_len + NLA_HEADER_SIZE))
 }
 
 const LENGTH: Field = 0..2;
@@ -178,15 +197,31 @@ impl DefaultNla {
     }
 }
 
+impl TryNla for DefaultNla {
+    fn try_emit_value_into(
+        &self,
+        out: &mut Vec<u8>,
+    ) -> Result<(), EncodeError> {
+        append_bytes(out, &self.value);
+        Ok(())
+    }
+
+    fn nla_type(&self) -> u16 {
+        self.kind
+    }
+}
+
 impl Nla for DefaultNla {
     fn value_len(&self) -> usize {
         self.value.len()
     }
+
     fn kind(&self) -> u16 {
         self.kind
     }
+
     fn emit_value(&self, buffer: &mut [u8]) {
-        buffer.copy_from_slice(self.value.as_slice());
+        crate::try_emit_bytes(buffer, &self.value).unwrap()
     }
 }
 
@@ -253,6 +288,81 @@ impl<T: Nla> Emitable for T {
             buffer.inner_mut()[NLA_HEADER_SIZE + self.value_len() + i] = 0;
         }
     }
+}
+
+impl<T: TryNla> TryEmit for T {
+    fn try_emit_into(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        let start = out.len();
+        let header_end = start
+            .checked_add(NLA_HEADER_SIZE)
+            .ok_or_else(|| EncodeError::length_overflow("netlink attribute"))?;
+        out.resize(header_end, 0);
+
+        let result = (|| -> Result<(), EncodeError> {
+            self.try_emit_value_into(out)?;
+
+            let value_len = out.len() - header_end;
+            let total_len = nla_total_size(value_len).map_err(|_| {
+                EncodeError::nla_value_too_long(
+                    self.nla_type(),
+                    value_len,
+                    NLA_MAX_VALUE_LEN,
+                )
+            })?;
+            let end = start.checked_add(total_len).ok_or_else(|| {
+                EncodeError::length_overflow("netlink attribute")
+            })?;
+            out.resize(end, 0);
+
+            let nla_len = NLA_HEADER_SIZE + value_len;
+            out[start..start + 2]
+                .copy_from_slice(&(nla_len as u16).to_ne_bytes());
+            let kind = self.nla_type();
+            let mut attr_type = kind & NLA_TYPE_MASK;
+            if (kind & NLA_F_NET_BYTEORDER) != 0 {
+                attr_type |= NLA_F_NET_BYTEORDER;
+            }
+            if (kind & NLA_F_NESTED) != 0 {
+                attr_type |= NLA_F_NESTED;
+            }
+            out[start + 2..header_end]
+                .copy_from_slice(&attr_type.to_ne_bytes());
+            Ok(())
+        })();
+
+        if result.is_err() {
+            out.truncate(start);
+        }
+        result
+    }
+}
+
+impl<T: TryNla> TryEmit for &[T] {
+    fn try_emit_into(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        try_emit_nlas_into(self, out)
+    }
+}
+
+/// Append a collection of fallible attributes to `out`.
+pub fn try_emit_nlas_into<T: TryNla>(
+    nlas: &[T],
+    out: &mut Vec<u8>,
+) -> Result<(), EncodeError> {
+    let start = out.len();
+    for nla in nlas {
+        if let Err(error) = nla.try_emit_into(out) {
+            out.truncate(start);
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+/// Emit a collection of fallible attributes into a newly allocated buffer.
+pub fn try_emit_nlas<T: TryNla>(nlas: &[T]) -> Result<Vec<u8>, EncodeError> {
+    let mut out = Vec::new();
+    try_emit_nlas_into(nlas, &mut out)?;
+    Ok(out)
 }
 
 // FIXME: whern specialization lands, why can actually have
@@ -347,8 +457,8 @@ mod tests {
 
         nla.emit(&mut emitted_buffer);
 
-        let attr_is_net = nla.is_network_byteorder();
-        let attr_is_nest = nla.is_nested();
+        let attr_is_net = Nla::is_network_byteorder(&nla);
+        let attr_is_nest = Nla::is_nested(&nla);
 
         let emit = NlaBuffer::new(emitted_buffer);
         let emit_is_net = emit.network_byte_order_flag();
@@ -365,8 +475,8 @@ mod tests {
     fn nested_and_network_byteorder() {
         let kind = 0x0005 | NLA_F_NESTED | NLA_F_NET_BYTEORDER;
         let nla = DefaultNla::new(kind, vec![0x00, 0x00, 0x0e, 0x10]);
-        assert!(nla.is_nested());
-        assert!(nla.is_network_byteorder());
+        assert!(Nla::is_nested(&nla));
+        assert!(Nla::is_network_byteorder(&nla));
 
         let mut emitted_buffer = vec![0; nla.buffer_len()];
         nla.emit(&mut emitted_buffer);
@@ -378,7 +488,7 @@ mod tests {
 
         // The parse -> emit round trip must preserve both flags.
         let reparsed = DefaultNla::parse(&emit).unwrap();
-        assert_eq!(reparsed.kind(), kind);
+        assert_eq!(Nla::kind(&reparsed), kind);
         let mut reemitted_buffer = vec![0; reparsed.buffer_len()];
         reparsed.emit(&mut reemitted_buffer);
         assert_eq!(emitted_buffer, reemitted_buffer);
@@ -413,6 +523,59 @@ mod tests {
     fn get_len() -> usize {
         // usize::MAX
         18446744073709551615
+    }
+
+    #[test]
+    fn kind_is_not_ambiguous() {
+        use crate::*;
+
+        let nla = DefaultNla::new(1, vec![]);
+        assert_eq!(nla.kind(), 1);
+        assert_eq!(nla.nla_type(), 1);
+    }
+
+    #[test]
+    fn nla_total_size_is_checked() {
+        assert_eq!(nla_total_size(0).unwrap(), 4);
+        assert_eq!(nla_total_size(3).unwrap(), 8);
+        assert_eq!(nla_total_size(NLA_MAX_VALUE_LEN).unwrap(), 65536);
+        assert!(nla_total_size(NLA_MAX_VALUE_LEN + 1).is_err());
+    }
+
+    #[test]
+    fn try_emit_nla_slice() {
+        let nlas = vec![
+            DefaultNla::new(1, vec![1, 2, 3]),
+            DefaultNla::new(2, vec![]),
+        ];
+        let buffer = nlas.as_slice().try_emit().unwrap();
+        assert_eq!(buffer, try_emit_nlas(&nlas).unwrap());
+    }
+
+    #[test]
+    fn try_nla_limits_and_buffer() {
+        let nla = DefaultNla::new(1, vec![0; NLA_MAX_VALUE_LEN]);
+        let buffer = TryEmit::try_emit(&nla).unwrap();
+        assert_eq!(buffer.len(), 65536);
+        assert_eq!(&buffer[..2], &u16::MAX.to_ne_bytes());
+
+        let too_large = DefaultNla::new(1, vec![0; NLA_MAX_VALUE_LEN + 1]);
+        let error = too_large.try_emit().unwrap_err();
+        assert!(error.is_too_large());
+    }
+
+    #[test]
+    fn try_emit_into_appends_to_existing_buffer() {
+        let nla = DefaultNla::new(1, vec![1, 2, 3]);
+        let mut out = vec![0xaa];
+        nla.try_emit_into(&mut out).unwrap();
+        assert_eq!(out[0], 0xaa);
+        assert_eq!(&out[1..], nla.try_emit().unwrap());
+
+        let too_large = DefaultNla::new(1, vec![0; NLA_MAX_VALUE_LEN + 1]);
+        let mut out = vec![0xaa];
+        assert!(too_large.try_emit_into(&mut out).is_err());
+        assert_eq!(out, vec![0xaa]);
     }
 
     #[test]

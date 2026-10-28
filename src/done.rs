@@ -3,8 +3,8 @@
 use std::mem::size_of;
 
 use crate::{
-    emit_i32, parse_i32, DecodeError, Emitable, ErrorContext, Field, Parseable,
-    Rest,
+    append_bytes, append_i32, emit_i32, parse_i32, DecodeError, Emitable,
+    EncodeError, ErrorContext, Field, Parseable, Rest, TryEmit,
 };
 
 const CODE: Field = 0..4;
@@ -96,6 +96,14 @@ impl Emitable for DoneMessage {
         buffer
             .extended_ack_mut()
             .copy_from_slice(&self.extended_ack);
+    }
+}
+
+impl TryEmit for DoneMessage {
+    fn try_emit_into(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        append_i32(out, self.code);
+        append_bytes(out, &self.extended_ack);
+        Ok(())
     }
 }
 

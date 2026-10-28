@@ -332,8 +332,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> NetlinkBuffer<&'a T> {
     ///
     /// This panic is the underlying storage is too small or if the `length`
     /// field in the header is set to a value that exceeds the storage
-    /// length (see [`new_checked()`](struct.NetlinkBuffer.html#method.
-    /// new_checked))
+    /// length (see [`NetlinkBuffer::new_checked`])
     pub fn payload(&self) -> &'a [u8] {
         let range = PAYLOAD.start..self.length() as usize;
         let data = self.buffer.as_ref();
@@ -348,8 +347,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NetlinkBuffer<&mut T> {
     ///
     /// This panic is the underlying storage is too small or if the `length`
     /// field in the header is set to a value that exceeds the storage
-    /// length (see [`new_checked()`](struct.NetlinkBuffer.html#method.
-    /// new_checked))
+    /// length (see [`NetlinkBuffer::new_checked`])
     pub fn payload_mut(&mut self) -> &mut [u8] {
         let range = PAYLOAD.start..self.length() as usize;
         let data = self.buffer.as_mut();

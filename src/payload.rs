@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-use crate::{DoneMessage, ErrorMessage, NetlinkSerializable};
+use crate::{DoneMessage, ErrorMessage, NetlinkSerializable, TrySerialize};
 
 /// The message is ignored.
 pub const NLMSG_NOOP: u16 = 1;
@@ -30,6 +30,22 @@ where
     I: NetlinkSerializable,
 {
     pub fn message_type(&self) -> u16 {
+        match self {
+            NetlinkPayload::Done(_) => NLMSG_DONE,
+            NetlinkPayload::Error(_) => NLMSG_ERROR,
+            NetlinkPayload::Noop => NLMSG_NOOP,
+            NetlinkPayload::Overrun(_) => NLMSG_OVERRUN,
+            NetlinkPayload::InnerMessage(message) => message.message_type(),
+        }
+    }
+}
+
+impl<I> NetlinkPayload<I>
+where
+    I: TrySerialize,
+{
+    /// Return the netlink message type of this payload.
+    pub fn try_message_type(&self) -> u16 {
         match self {
             NetlinkPayload::Done(_) => NLMSG_DONE,
             NetlinkPayload::Error(_) => NLMSG_ERROR,

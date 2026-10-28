@@ -266,25 +266,41 @@ pub use self::constants::{
     NLM_F_NONREC, NLM_F_REPLACE, NLM_F_REQUEST, NLM_F_ROOT,
 };
 pub use self::done::{DoneBuffer, DoneMessage};
-pub use self::error::{DecodeError, ErrorBuffer, ErrorContext, ErrorMessage};
+pub use self::error::{
+    DecodeError, EncodeError, EncodeErrorKind, ErrorBuffer, ErrorContext,
+    ErrorMessage,
+};
 pub use self::header::NetlinkHeader;
 pub use self::mac::EthernetProtocol;
 pub use self::message::NetlinkMessage;
 pub use self::nla::{
-    DefaultNla, Nla, NlaBuffer, NlasIterator, NLA_ALIGNTO, NLA_F_NESTED,
-    NLA_F_NET_BYTEORDER, NLA_HEADER_SIZE, NLA_TYPE_MASK,
+    nla_total_size, try_emit_nlas, try_emit_nlas_into, DefaultNla, Nla,
+    NlaBuffer, NlasIterator, NLA_ALIGNTO, NLA_F_NESTED, NLA_F_NET_BYTEORDER,
+    NLA_HEADER_SIZE, NLA_MAX_VALUE_LEN, NLA_TYPE_MASK,
 };
 pub use self::parsers::{
-    emit_i128, emit_i128_be, emit_i128_le, emit_i16, emit_i16_be, emit_i16_le,
-    emit_i32, emit_i32_be, emit_i32_le, emit_i64, emit_i64_be, emit_i64_le,
-    emit_u128, emit_u128_be, emit_u128_le, emit_u16, emit_u16_be, emit_u16_le,
-    emit_u32, emit_u32_be, emit_u32_le, emit_u64, emit_u64_be, emit_u64_le,
-    parse_i128, parse_i128_be, parse_i128_le, parse_i16, parse_i16_be,
-    parse_i16_le, parse_i32, parse_i32_be, parse_i32_le, parse_i64,
-    parse_i64_be, parse_i64_le, parse_i8, parse_ip, parse_ipv6, parse_mac,
-    parse_string, parse_u128, parse_u128_be, parse_u128_le, parse_u16,
-    parse_u16_be, parse_u16_le, parse_u32, parse_u32_be, parse_u32_le,
-    parse_u64, parse_u64_be, parse_u64_le, parse_u8,
+    append_bytes, append_i128, append_i128_be, append_i128_le, append_i16,
+    append_i16_be, append_i16_le, append_i32, append_i32_be, append_i32_le,
+    append_i64, append_i64_be, append_i64_le, append_i8, append_u128,
+    append_u128_be, append_u128_le, append_u16, append_u16_be, append_u16_le,
+    append_u32, append_u32_be, append_u32_le, append_u64, append_u64_be,
+    append_u64_le, append_u8, emit_i128, emit_i128_be, emit_i128_le, emit_i16,
+    emit_i16_be, emit_i16_le, emit_i32, emit_i32_be, emit_i32_le, emit_i64,
+    emit_i64_be, emit_i64_le, emit_i8, emit_u128, emit_u128_be, emit_u128_le,
+    emit_u16, emit_u16_be, emit_u16_le, emit_u32, emit_u32_be, emit_u32_le,
+    emit_u64, emit_u64_be, emit_u64_le, emit_u8, parse_i128, parse_i128_be,
+    parse_i128_le, parse_i16, parse_i16_be, parse_i16_le, parse_i32,
+    parse_i32_be, parse_i32_le, parse_i64, parse_i64_be, parse_i64_le,
+    parse_i8, parse_ip, parse_ipv6, parse_mac, parse_string, parse_u128,
+    parse_u128_be, parse_u128_le, parse_u16, parse_u16_be, parse_u16_le,
+    parse_u32, parse_u32_be, parse_u32_le, parse_u64, parse_u64_be,
+    parse_u64_le, parse_u8, try_emit_bytes, try_emit_i128, try_emit_i128_be,
+    try_emit_i128_le, try_emit_i16, try_emit_i16_be, try_emit_i16_le,
+    try_emit_i32, try_emit_i32_be, try_emit_i32_le, try_emit_i64,
+    try_emit_i64_be, try_emit_i64_le, try_emit_i8, try_emit_u128,
+    try_emit_u128_be, try_emit_u128_le, try_emit_u16, try_emit_u16_be,
+    try_emit_u16_le, try_emit_u32, try_emit_u32_be, try_emit_u32_le,
+    try_emit_u64, try_emit_u64_be, try_emit_u64_le, try_emit_u8,
 };
 pub use self::payload::{
     NetlinkPayload, NLMSG_ALIGNTO, NLMSG_DONE, NLMSG_ERROR, NLMSG_NOOP,
@@ -292,5 +308,5 @@ pub use self::payload::{
 };
 pub use self::traits::{
     Emitable, NetlinkDeserializable, NetlinkSerializable, Parseable,
-    ParseableParametrized,
+    ParseableParametrized, TryEmit, TryNla, TrySerialize,
 };

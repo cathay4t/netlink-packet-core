@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 use crate::{
-    buffer::NETLINK_HEADER_LEN, DecodeError, Emitable, NetlinkBuffer, Parseable,
+    append_u16, append_u32, buffer::NETLINK_HEADER_LEN, DecodeError, Emitable,
+    EncodeError, NetlinkBuffer, Parseable, TryEmit,
 };
 
 /// A Netlink header representation. A netlink header has the following
@@ -51,6 +52,17 @@ impl Emitable for NetlinkHeader {
         buffer.set_flags(self.flags);
         buffer.set_sequence_number(self.sequence_number);
         buffer.set_port_number(self.port_number);
+    }
+}
+
+impl TryEmit for NetlinkHeader {
+    fn try_emit_into(&self, out: &mut Vec<u8>) -> Result<(), EncodeError> {
+        append_u32(out, self.length);
+        append_u16(out, self.message_type);
+        append_u16(out, self.flags);
+        append_u32(out, self.sequence_number);
+        append_u32(out, self.port_number);
+        Ok(())
     }
 }
 
